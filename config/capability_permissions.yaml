@@ -1,0 +1,48 @@
+# 能力调用权限分级
+# level: public(公开) | restricted(需审核) | private(禁止跨Agent调用)
+
+capabilities:
+  # 🟢 公开
+  system_monitor:
+    level: public
+    description: 查看系统状态
+  web_search:
+    level: public
+    description: 网络搜索
+  echo:
+    level: public
+    description: 回声测试
+  translation:
+    level: public
+    description: 文本翻译
+
+  # 🟡 限制 — 仅admin可调
+  data_analysis:
+    level: restricted
+    description: 数据分析
+  code_generation:
+    level: restricted
+    description: 代码生成
+  api_integration:
+    level: restricted
+    description: API调用
+
+  # 🔴 禁止
+  file_transfer:
+    level: private
+    description: 文件传输
+  task_scheduling:
+    level: private
+    description: 任务调度
+  desktop_automation:
+    level: private
+    description: 桌面自动化
+  wechat_operations:
+    level: private
+    description: 微信操作
+  ssh_operations:
+    level: private
+    description: SSH远程操作
+  download_management:
+    level: private
+    description: 下载管理

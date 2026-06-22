@@ -1,0 +1,84 @@
+# 小希-Mesh v2 消息中转服务 配置文件
+server:
+  host: "0.0.0.0"
+  ws_port: 8765
+  http_port: 8766
+
+auth:
+  secret_key: "xiaoxi-mesh-dev-key-change-in-production"
+  token_expire_hours: 72
+  refresh_token_expire_days: 30
+
+storage:
+  db_path: "data/messenger.db"
+
+limits:
+  max_message_size: 1048576  # 1MB
+  max_connections: 50
+  heartbeat_interval: 30
+  heartbeat_timeout: 90
+
+admin:
+  username: "admin"
+  # 默认密码: admin123 (首次启动后请修改)
+  password_hash: ""
+
+# v2: 协作引擎配置
+collaboration:
+  # 任务路由评分权重
+  scoring:
+    capability_weight: 50   # 能力匹配
+    keyword_weight: 30      # 关键词匹配
+    specialty_weight: 10    # 专长匹配
+    online_bonus: 5         # 在线时长奖励
+  # 自动路由开关
+  auto_route: true
+  # 任务超时（秒）
+  task_timeout: 3600
+
+# v2: 权限配置
+permissions:
+  roles:
+    admin:
+      message: [send, receive, broadcast]
+      file: [upload, download, delete]
+      command: [execute, manage]
+      task: [create, delegate, manage, complete, delete]
+      agent: [register, manage, delete]
+      admin: [manage, config, audit]
+      token: [create, revoke, list]
+      invoke: [call, manage]
+    agent:
+      message: [send, receive]
+      file: [upload, download]
+      command: [execute]
+      task: [create, complete, delegate]
+      agent: [list]
+      token: [list]
+      invoke: [call]
+    external:
+      message: [receive]
+      file: [download]
+      task: [list]
+      agent: [list]
+    readonly:
+      message: [receive]
+      file: [download]
+      task: [list]
+      agent: [list]
+
+# v2: 审计配置
+audit:
+  # 频率限制窗口（秒）
+  rate_limit_window: 60
+  # 窗口内最大操作次数
+  rate_limit_max: 100
+  # 日志保留天数
+  retention_days: 90
+
+# v2: Web 管理界面配置
+web:
+  enabled: true
+  path: "/web/"
+  # 静态文件目录（如果需要自定义）
+  static_dir: ""
