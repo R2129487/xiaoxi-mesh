@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+*.egg
+
+# Flutter / Dart
+app/build/
+app/.dart_tool/
+app/.packages
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/pubspec.lock
+app/android/.gradle/
+app/android/build/
+app/android/local.properties
+app/ios/Pods/
+app/ios/.symlinks/
+app/.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Data
+server/data/
+*.db
+
+# Env
+.env
+.env.local
+
+# Config with secrets
+server/config.local.yaml
+
+# Temp
+*.log
+tmp/

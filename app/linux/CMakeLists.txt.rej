@@ -1,0 +1,10 @@
+--- CMakeLists.txt
++++ CMakeLists.txt
+@@ -1,6 +1,7 @@
+ cmake_minimum_required(VERSION 3.13)
+ project(runner LANGUAGES CXX)
+ 
++set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install")
+ set(BINARY_NAME "xiaoqing_app")
+ 
+ 
