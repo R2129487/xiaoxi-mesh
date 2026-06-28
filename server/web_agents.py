@@ -1,0 +1,382 @@
+"""智能体管理页面 HTML 模板"""
+_AGENTS_HTML = r"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能体管理</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans SC',sans-serif;background:#f0f2f5;color:#333;padding:20px}
+.container{max-width:960px;margin:0 auto}
+h1{font-size:20px;margin-bottom:4px}
+.subtitle{color:#999;font-size:13px;margin-bottom:20px}
+.link-bar{text-align:right;margin-bottom:16px}
+.link-bar a{color:#3498db;text-decoration:none;font-size:13px}
+.link-bar a:hover{text-decoration:underline}
+.card{background:#fff;border-radius:10px;padding:20px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.card h2{font-size:15px;font-weight:600;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #eee}
+.btn{background:#3498db;color:#fff;border:none;padding:8px 18px;border-radius:6px;font-size:13px;cursor:pointer;transition:background .15s}
+.btn:hover{background:#2980b9}
+.btn-sm{padding:5px 10px;font-size:12px}
+.btn-danger{background:#e74c3c}
+.btn-danger:hover{background:#c0392b}
+.btn-success{background:#27ae60}
+.btn-success:hover{background:#219a52}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid #eee;font-size:12px}
+th{font-weight:600;color:#555;font-size:11px;white-space:nowrap}
+tr:hover{background:#f8f9fa}
+.status-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.status-online{background:#d4edda;color:#155724}
+.status-offline{background:#f8d7da;color:#721c24}
+.status-busy{background:#fff3cd;color:#856404}
+.form-group{margin-bottom:12px}
+.form-group label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:3px}
+.form-group input,.form-group textarea,.form-group select{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;outline:none;font-family:inherit}
+.form-group input:focus,.form-group textarea:focus,.form-group select:focus{border-color:#3498db}
+.form-group textarea{min-height:80px;resize:vertical;line-height:1.5}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:999}
+.modal-content{background:#fff;border-radius:12px;padding:24px;width:90%;max-width:600px;max-height:85vh;overflow-y:auto}
+.modal-content h3{margin-bottom:16px;font-size:16px}
+.toast{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:8px;color:#fff;font-size:13px;z-index:9999;animation:fadeIn .3s;max-width:360px}
+.toast.success{background:#27ae60}
+.toast.error{background:#e74c3c}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+.empty{text-align:center;padding:40px;color:#999;font-size:14px}
+.conn-tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;margin-right:4px}
+.conn-local{background:#e8f4fd;color:#2980b9}
+.conn-ssh{background:#fef3e2;color:#d35400}
+.conn-mesh{background:#e8f8f5;color:#1abc9c}
+.conn-http{background:#f0e6f6;color:#8e44ad}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="link-bar">
+    <a href="/chat">← 聊天</a>
+    <span style="margin:0 8px;color:#ddd">|</span>
+    <a href="/config">⚙️ 配置</a>
+    <span style="margin:0 8px;color:#ddd">|</span>
+    <a href="/memory">📝 记忆</a>
+  </div>
+  <h1>🤖 智能体管理</h1>
+  <div class="subtitle">注册、编辑、删除智能体 · 连接参数决定如何执行任务</div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #eee">
+      <h2 style="margin:0;padding:0;border:none">已注册智能体</h2>
+      <button class="btn btn-success" onclick="showAddModal()">➕ 新增</button>
+    </div>
+    <div id="agent-list">
+      <div class="empty">加载中...</div>
+    </div>
+  </div>
+</div>
+
+<!-- 新增/编辑 模态框 -->
+<div id="modal" class="modal" style="display:none" onclick="if(event.target===this)closeModal()">
+  <div class="modal-content">
+    <h3 id="modal-title">新增智能体</h3>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>ID（唯一标识，如 xiao-hong）</label>
+        <input id="f-id" placeholder="xiao-hong" />
+      </div>
+      <div class="form-group">
+        <label>名称（显示用，如 小红）</label>
+        <input id="f-name" placeholder="小红" />
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>能力（逗号分隔，如 chat,code,search）</label>
+      <input id="f-cap" placeholder="chat,code,search" />
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>角色头像字符</label>
+        <input id="f-avatar" placeholder="红" style="width:100px" />
+      </div>
+      <div class="form-group">
+        <label>颜色（十六进制，如 #e74c3c）</label>
+        <input id="f-color" placeholder="#e74c3c" style="width:140px" />
+      </div>
+    </div>
+
+    <div style="background:#f8f9fa;border-radius:8px;padding:14px;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:8px">🔌 连接参数（用于执行任务）</div>
+      <div class="form-row-3">
+        <div class="form-group">
+          <label>连接方式</label>
+          <select id="f-conn-type" onchange="toggleConnFields()">
+            <option value="local">local（本机）</option>
+            <option value="ssh">ssh（远程服务器）</option>
+            <option value="mesh">mesh（MESH协议）</option>
+            <option value="http">http（HTTP API）</option>
+          </select>
+        </div>
+        <div class="form-group" id="field-host">
+          <label>IP地址 / 主机名</label>
+          <input id="f-host" placeholder="192.168.1.x" />
+        </div>
+        <div class="form-group" id="field-port">
+          <label>端口</label>
+          <input id="f-port" placeholder="22 / 50198" style="width:100px" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" id="field-ssh-user">
+          <label>SSH用户名</label>
+          <input id="f-ssh-user" placeholder="root" style="width:120px" />
+        </div>
+        <div class="form-group">
+          <label>命令模板（{task} 会被替换为任务内容）</label>
+          <input id="f-cmd" placeholder="hermes -z '{task}' --yolo" />
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>提示词（定义智能体的行为和性格）</label>
+      <textarea id="f-prompt" placeholder="你是小红，一个..."></textarea>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button class="btn" style="background:#95a5a6" onclick="closeModal()">取消</button>
+      <button class="btn btn-success" id="save-agent-btn" onclick="saveAgent()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let agents = [];
+let prompts = {};
+let editingId = null;
+
+const AGENT_STYLES = {
+  'xiao-qing': {avatar:'青', color:'#e67e22'},
+  'xiao-lan':  {avatar:'蓝', color:'#3498db'},
+  'xiao-bai':  {avatar:'白', color:'#95a5a6'},
+  'xiao-hei':  {avatar:'黑', color:'#e74c3c'},
+  'dispatcher':{avatar:'调', color:'#3498db'},
+};
+
+const CONN_LABELS = {local:'本机', ssh:'SSH', mesh:'MESH', http:'HTTP'};
+
+function toggleConnFields() {
+  const t = document.getElementById('f-conn-type').value;
+  document.getElementById('field-host').style.display = t === 'local' ? 'none' : '';
+  document.getElementById('field-port').style.display = t === 'local' ? 'none' : '';
+  document.getElementById('field-ssh-user').style.display = t === 'ssh' ? '' : 'none';
+}
+
+async function loadAgents() {
+  try {
+    const [ar, pr] = await Promise.all([
+      fetch('/api/agents').then(r=>r.json()),
+      fetch('/api/config/agent-prompts').then(r=>r.json()),
+    ]);
+    agents = ar.data || [];
+    prompts = pr.data || {};
+    renderAgents();
+  } catch(e) {
+    document.getElementById('agent-list').innerHTML = '<div class="empty">加载失败</div>';
+  }
+}
+
+function connTag(type) {
+  const label = CONN_LABELS[type] || type;
+  return `<span class="conn-tag conn-${type}">${label}</span>`;
+}
+
+function connInfo(a) {
+  if (a.connection_type === 'local' || !a.connection_type) return '本机';
+  let s = a.host || '';
+  if (a.port) s += ':' + a.port;
+  if (a.ssh_user) s = a.ssh_user + '@' + s;
+  return s;
+}
+
+function renderAgents() {
+  const el = document.getElementById('agent-list');
+  if (!agents.length) {
+    el.innerHTML = '<div class="empty">暂无智能体，点击右上角「新增」注册</div>';
+    return;
+  }
+  el.innerHTML = `<table>
+    <tr>
+      <th>头像</th><th>名称</th><th>ID</th><th>能力</th>
+      <th>连接方式</th><th>连接地址</th><th>状态</th><th>操作</th>
+    </tr>
+    ${agents.map(a => {
+      const style = AGENT_STYLES[a.id] || {};
+      const avatar = style.avatar || (a.name ? a.name[0] : '?');
+      const color = style.color || '#95a5a6';
+      const statusClass = 'status-' + (a.status || 'offline');
+      const statusLabel = {online:'在线', offline:'离线', busy:'工作中'}[a.status] || a.status;
+      const connType = a.connection_type || 'local';
+      return `<tr>
+        <td><div style="width:32px;height:32px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px">${avatar}</div></td>
+        <td><strong>${escHtml(a.name)}</strong></td>
+        <td style="color:#999;font-size:11px">${escHtml(a.id)}</td>
+        <td style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(a.capabilities || '')}</td>
+        <td>${connTag(connType)}</td>
+        <td style="font-size:11px;color:#666;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(connInfo(a))}</td>
+        <td><span class="status-badge ${statusClass}">${statusLabel}</span></td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-sm" onclick="editAgent('${a.id}')">✏️</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteAgent('${a.id}')">🗑</button>
+        </td>
+      </tr>`;
+    }).join('')}
+  </table>`;
+}
+
+function showAddModal() {
+  editingId = null;
+  document.getElementById('modal-title').textContent = '新增智能体';
+  document.getElementById('f-id').value = '';
+  document.getElementById('f-name').value = '';
+  document.getElementById('f-cap').value = '';
+  document.getElementById('f-avatar').value = '';
+  document.getElementById('f-color').value = '';
+  document.getElementById('f-prompt').value = '';
+  document.getElementById('f-conn-type').value = 'local';
+  document.getElementById('f-host').value = '';
+  document.getElementById('f-port').value = '';
+  document.getElementById('f-ssh-user').value = '';
+  document.getElementById('f-cmd').value = '';
+  toggleConnFields();
+  document.getElementById('modal').style.display = 'flex';
+}
+
+async function editAgent(id) {
+  editingId = id;
+  const a = agents.find(x => x.id === id);
+  if (!a) return;
+  const style = AGENT_STYLES[id] || {};
+  document.getElementById('modal-title').textContent = '编辑智能体 - ' + a.name;
+  document.getElementById('f-id').value = a.id;
+  document.getElementById('f-id').disabled = true;
+  document.getElementById('f-name').value = a.name;
+  document.getElementById('f-cap').value = a.capabilities || '';
+  document.getElementById('f-avatar').value = style.avatar || '';
+  document.getElementById('f-color').value = style.color || '';
+  document.getElementById('f-prompt').value = prompts[id] || '';
+  document.getElementById('f-conn-type').value = a.connection_type || 'local';
+  document.getElementById('f-host').value = a.host || '';
+  document.getElementById('f-port').value = a.port || '';
+  document.getElementById('f-ssh-user').value = a.ssh_user || '';
+  document.getElementById('f-cmd').value = a.command_template || '';
+  toggleConnFields();
+  document.getElementById('modal').style.display = 'flex';
+}
+
+function closeModal() {
+  document.getElementById('modal').style.display = 'none';
+  document.getElementById('f-id').disabled = false;
+}
+
+async function saveAgent() {
+  const id = document.getElementById('f-id').value.trim();
+  const name = document.getElementById('f-name').value.trim();
+  const cap = document.getElementById('f-cap').value.trim();
+  const avatar = document.getElementById('f-avatar').value.trim();
+  const color = document.getElementById('f-color').value.trim();
+  const prompt = document.getElementById('f-prompt').value.trim();
+  const connType = document.getElementById('f-conn-type').value;
+  const host = document.getElementById('f-host').value.trim();
+  const port = document.getElementById('f-port').value.trim();
+  const sshUser = document.getElementById('f-ssh-user').value.trim();
+  const cmd = document.getElementById('f-cmd').value.trim();
+
+  if (!id || !name) { showToast('ID 和名称不能为空', 'error'); return; }
+
+  const btn = document.getElementById('save-agent-btn');
+  btn.disabled = true; btn.textContent = '保存中...';
+
+  try {
+    const connPayload = {
+      connection_type: connType,
+      host: host || null,
+      port: port ? parseInt(port) : null,
+      ssh_user: sshUser || null,
+      command_template: cmd || null,
+    };
+
+    if (editingId) {
+      await fetch('/api/agents/' + editingId, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, capabilities: cap, ...connPayload}),
+      });
+    } else {
+      const r = await fetch('/api/agents', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id, name, capabilities: cap, ...connPayload}),
+      });
+      const d = await r.json();
+      if (d.code !== 0) { showToast(d.message, 'error'); btn.disabled = false; btn.textContent = '保存'; return; }
+    }
+
+    // 保存提示词
+    if (prompt) {
+      await fetch('/api/config/agent-prompts/' + id, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({prompt}),
+      });
+    }
+
+    // 保存头像和颜色到 localStorage
+    if (avatar && color) {
+      let custom = {};
+      try { custom = JSON.parse(localStorage.getItem('custom_agent_styles') || '{}'); } catch(e) {}
+      custom[id] = {avatar, color};
+      localStorage.setItem('custom_agent_styles', JSON.stringify(custom));
+    }
+
+    showToast(editingId ? '✅ 已更新' : '✅ 注册成功', 'success');
+    closeModal();
+    await loadAgents();
+  } catch(e) {
+    showToast('操作失败: ' + e.message, 'error');
+  }
+  btn.disabled = false; btn.textContent = '保存';
+}
+
+async function deleteAgent(id) {
+  if (!confirm('确定删除智能体「' + id + '」？')) return;
+  try {
+    await fetch('/api/agents/' + id, {method: 'DELETE'});
+    await fetch('/api/config/agent-prompts/' + id, {method: 'DELETE'});
+    showToast('已删除', 'success');
+    await loadAgents();
+  } catch(e) {
+    showToast('删除失败: ' + e.message, 'error');
+  }
+}
+
+function showToast(msg, type) {
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+function escHtml(s) { return String(s).replace(/[<>&]/g,function(m){return {'<':'&lt;','>':'&gt;','&':'&amp;'}[m];}); }
+
+loadAgents();
+</script>
+</body>
+</html>"""
+
+def get_agents_html() -> str:
+    return _AGENTS_HTML

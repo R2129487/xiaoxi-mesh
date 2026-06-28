@@ -1,0 +1,230 @@
+"""调度员 - 配置页面 HTML 模板"""
+
+_CONFIG_HTML = r"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>调度员配置</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans SC',sans-serif;background:#f0f2f5;color:#333;padding:20px}
+.container{max-width:720px;margin:0 auto}
+h1{font-size:20px;margin-bottom:4px}
+.subtitle{color:#999;font-size:13px;margin-bottom:20px}
+.card{background:#fff;border-radius:10px;padding:20px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.card h2{font-size:15px;font-weight:600;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #eee}
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:4px}
+.form-group input,.form-group textarea,.form-group select{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;outline:none;transition:border .15s;font-family:inherit}
+.form-group input:focus,.form-group textarea:focus,.form-group select:focus{border-color:#3498db}
+.form-group textarea{min-height:80px;resize:vertical;line-height:1.5}
+.form-group .hint{font-size:11px;color:#999;margin-top:3px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.btn-row{display:flex;gap:10px;margin-top:20px;align-items:center}
+.btn{background:#3498db;color:#fff;border:none;padding:10px 24px;border-radius:8px;font-size:14px;cursor:pointer;transition:background .15s}
+.btn:hover{background:#2980b9}
+.btn:disabled{background:#bbb;cursor:not-allowed}
+.btn-secondary{background:#95a5a6}
+.btn-secondary:hover{background:#7f8c8d}
+.btn-danger{background:#e74c3c}
+.btn-danger:hover{background:#c0392b}
+.toast{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:8px;color:#fff;font-size:13px;z-index:999;animation:fadeIn .3s;max-width:360px}
+.toast.success{background:#27ae60}
+.toast.error{background:#e74c3c}
+.toast.info{background:#3498db}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+.link-bar{text-align:right;margin-bottom:16px}
+.link-bar a{color:#3498db;text-decoration:none;font-size:13px}
+.link-bar a:hover{text-decoration:underline}
+.api-key-row{display:flex;gap:8px;align-items:center}
+.api-key-row input{flex:1}
+.api-key-row .toggle-key{background:none;border:1px solid #ddd;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:12px;color:#666}
+.prompt-editor{min-height:200px;font-size:13px;line-height:1.6;font-family:inherit}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="link-bar">
+    <a href="/chat">← 聊天</a>
+    <span style="margin:0 8px;color:#ddd">|</span>
+    <a href="/memory">📝 记忆管理</a>
+    <span style="margin:0 8px;color:#ddd">|</span>
+    <a href="/agents">🤖 智能体</a>
+    <span style="margin:0 8px;color:#ddd">|</span>
+    <a href="/admin" target="_blank">📊 调度面板</a>
+  </div>
+  <h1>⚙️ 调度员配置</h1>
+  <div class="subtitle">修改 LLM 参数后自动保存到配置文件，下次请求生效</div>
+
+  <div class="card" id="config-card">
+    <h2>🔌 LLM 连接</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label>供应商 Provider</label>
+        <input id="provider" placeholder="mimo" />
+        <div class="hint">如 mimo, openai, deepseek</div>
+      </div>
+      <div class="form-group">
+        <label>模型 Model</label>
+        <input id="model" placeholder="mimo-v2-omni" />
+      </div>
+    </div>
+    <div class="form-group">
+      <label>API 地址 Base URL</label>
+      <input id="base_url" placeholder="https://api.xiaomimimo.com/v1" />
+      <div class="hint">OpenAI 兼容格式的 API 地址</div>
+    </div>
+    <div class="form-group">
+      <label>API Key</label>
+      <div class="api-key-row">
+        <input id="api_key" type="password" placeholder="输入新的 API Key（留空不修改）" />
+        <button class="toggle-key" onclick="toggleKey()">👁</button>
+      </div>
+      <div class="hint" id="key-status"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🎛 生成参数</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label>最大输出 Token</label>
+        <input id="max_tokens" type="number" placeholder="2048" />
+      </div>
+      <div class="form-group">
+        <label>超时（秒）</label>
+        <input id="timeout" type="number" placeholder="60" />
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>温度 Temperature</label>
+        <input id="temperature" type="number" step="0.1" min="0" max="2" placeholder="0.7" />
+        <div class="hint">0-2，越高越随机</div>
+      </div>
+      <div class="form-group">
+        <label>Top-P</label>
+        <input id="top_p" type="number" step="0.05" min="0" max="1" placeholder="0.9" />
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📝 系统提示词</h2>
+    <div class="form-group">
+      <textarea id="system_prompt" class="prompt-editor" placeholder="调度员系统提示词..."></textarea>
+      <div class="hint">定义调度员的行为和性格，修改后立即生效</div>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn" id="save-btn" onclick="saveConfig()">💾 保存配置</button>
+    <button class="btn btn-secondary" onclick="loadConfig()">🔄 重新加载</button>
+    <div id="save-status" style="font-size:13px;color:#999;flex:1;text-align:right"></div>
+  </div>
+</div>
+
+<script>
+// ==================== API ====================
+async function loadConfig() {
+  document.getElementById('save-status').textContent = '加载中...';
+  try {
+    const r = await fetch('/api/config');
+    const d = await r.json();
+    if (d.code !== 0) throw new Error(d.message);
+    const llm = d.data.llm;
+    const prompt = d.data.system_prompt;
+
+    document.getElementById('provider').value = llm.provider || '';
+    document.getElementById('base_url').value = llm.base_url || '';
+    document.getElementById('model').value = llm.model || '';
+    document.getElementById('max_tokens').value = llm.max_tokens || '';
+    document.getElementById('timeout').value = llm.timeout || '';
+    document.getElementById('temperature').value = llm.temperature || '';
+    document.getElementById('top_p').value = llm.top_p || '';
+    document.getElementById('system_prompt').value = prompt || '';
+    document.getElementById('api_key').value = '';
+
+    // API Key 状态
+    const keyStatus = document.getElementById('key-status');
+    if (llm.has_api_key) {
+      keyStatus.textContent = '✅ 已有 Key（' + llm.api_key_masked + '），输入新值覆盖';
+      keyStatus.style.color = '#27ae60';
+    } else {
+      keyStatus.textContent = '⚠️ 未配置 API Key，需要填写';
+      keyStatus.style.color = '#e67e22';
+    }
+
+    document.getElementById('save-status').textContent = '✅ 已加载';
+  } catch(e) {
+    document.getElementById('save-status').textContent = '❌ 加载失败: ' + e.message;
+  }
+}
+
+async function saveConfig() {
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+  btn.textContent = '保存中...';
+  document.getElementById('save-status').textContent = '';
+
+  const body = {
+    llm: {
+      provider: document.getElementById('provider').value.trim(),
+      base_url: document.getElementById('base_url').value.trim(),
+      model: document.getElementById('model').value.trim(),
+      max_tokens: parseInt(document.getElementById('max_tokens').value) || 2048,
+      timeout: parseInt(document.getElementById('timeout').value) || 60,
+      temperature: parseFloat(document.getElementById('temperature').value) || 0.7,
+      top_p: parseFloat(document.getElementById('top_p').value) || 0.9,
+    },
+    system_prompt: document.getElementById('system_prompt').value,
+  };
+
+  const apiKey = document.getElementById('api_key').value.trim();
+  if (apiKey) {
+    body.llm.api_key = apiKey;
+  }
+
+  try {
+    const r = await fetch('/api/config', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (d.code !== 0) throw new Error(d.message);
+    showToast('✅ 配置已保存', 'success');
+    document.getElementById('save-status').textContent = '✅ 已保存';
+    loadConfig(); // 重新加载确认
+  } catch(e) {
+    showToast('❌ 保存失败: ' + e.message, 'error');
+    document.getElementById('save-status').textContent = '❌ 失败';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '💾 保存配置';
+  }
+}
+
+function toggleKey() {
+  const input = document.getElementById('api_key');
+  input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+function showToast(msg, type) {
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+// 初始化
+loadConfig();
+</script>
+</body>
+</html>"""
+
+
+def get_config_html() -> str:
+    return _CONFIG_HTML

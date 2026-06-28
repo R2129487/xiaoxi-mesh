@@ -1,0 +1,527 @@
+<!-- 小希 Web 客户端 - admin.html -->
+<!-- 从 server/web_ui.py 提取 -->
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Task Dispatcher 管理</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+body{background:#f0f2f5;color:#333;min-height:100vh}
+header{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:1.5rem 2rem;text-align:center}
+header h1{font-size:1.8rem;margin-bottom:0.3rem}
+header p{opacity:.9;font-size:0.9rem}
+#status-bar{background:#fff;border-bottom:1px solid #ddd;padding:0.7rem 2rem;display:flex;gap:1rem;flex-wrap:wrap;align-items:center}
+#status-bar .stat{background:#f8f9fa;border-radius:6px;padding:0.3rem 0.8rem;font-size:0.85rem}
+#status-bar .stat strong{color:#667eea}
+nav{background:#fff;border-bottom:1px solid #ddd;display:flex;padding:0 2rem;gap:1rem;flex-wrap:wrap}
+nav a{padding:0.8rem 0.2rem;text-decoration:none;color:#666;font-size:0.9rem;border-bottom:2px solid transparent;cursor:pointer}
+nav a.active,nav a:hover{color:#667eea;border-bottom-color:#667eea}
+main{padding:1.5rem 2rem;max-width:1400px;margin:0 auto}
+.page{display:none}
+.page.active{display:block}
+.card{background:#fff;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:1.5rem;margin-bottom:1.5rem}
+.card h2{font-size:1.2rem;margin-bottom:1rem;color:#444}
+table{width:100%;border-collapse:collapse;font-size:0.9rem}
+th,td{padding:0.7rem 0.8rem;text-align:left;border-bottom:1px solid #eee}
+th{background:#f8f9fa;font-weight:600;color:#666;position:sticky;top:0}
+tr:hover{background:#f5f7ff}
+.tag{display:inline-block;padding:0.15rem 0.5rem;border-radius:10px;font-size:0.75rem;font-weight:600}
+.tag.online{background:#d4edda;color:#155724}
+.tag.offline{background:#f8d7da;color:#721c24}
+.tag.busy{background:#fff3cd;color:#856404}
+.tag.queued{background:#e2e3e5;color:#383d41}
+.tag.running{background:#cce5ff;color:#004085}
+.tag.completed{background:#d4edda;color:#155724}
+.tag.failed{background:#f8d7da;color:#721c24}
+.tag.cancelled{background:#fff3cd;color:#856404}
+.tag.critical{background:#f8d7da;color:#721c24}
+.tag.high{background:#fff3cd;color:#856404}
+.tag.medium{background:#cce5ff;color:#004085}
+.tag.low{background:#e2e3e5;color:#383d41}
+pre{background:#f5f5f5;padding:1rem;border-radius:6px;overflow-x:auto;font-size:0.8rem;max-height:400px;overflow-y:auto}
+.btn{display:inline-block;padding:0.5rem 1.2rem;border:none;border-radius:6px;cursor:pointer;font-size:0.85rem;font-weight:600;text-decoration:none}
+.btn-primary{background:#667eea;color:#fff}
+.btn-primary:hover{background:#5a6fd6}
+.btn-danger{background:#e74c3c;color:#fff}
+.btn-danger:hover{background:#c0392b}
+.btn-success{background:#27ae60;color:#fff}
+.btn-success:hover{background:#219a52}
+.btn-sm{padding:0.3rem 0.8rem;font-size:0.8rem}
+input,select,textarea{padding:0.5rem;border:1px solid #ddd;border-radius:6px;font-size:0.85rem;width:100%}
+.form-group{margin-bottom:1rem}
+.form-group label{display:block;margin-bottom:0.3rem;font-size:0.85rem;color:#555;font-weight:600}
+.form-row{display:flex;gap:1rem;flex-wrap:wrap}
+.form-row>*{flex:1;min-width:200px}
+.mt-1{margin-top:1rem}
+.mb-1{margin-bottom:1rem}
+.loading{text-align:center;padding:2rem;color:#999}
+.error{color:#e74c3c;padding:1rem;background:#fdf0ef;border-radius:6px;margin:1rem 0}
+.success{color:#155724;padding:1rem;background:#d4edda;border-radius:6px;margin:1rem 0}
+.flex{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+.justify-between{justify-content:space-between}
+.text-center{text-align:center}
+.hidden{display:none}
+@media(max-width:768px){header{padding:1rem}main{padding:1rem}nav{padding:0 1rem}table{font-size:0.8rem}th,td{padding:0.5rem}}
+</style>
+</head>
+<body>
+<header><h1>Task Dispatcher</h1><p>任务调度管理平台 · 小希-Mesh 智能体协作网络</p></header>
+<div id="status-bar">
+  <span class="stat">任务总数: <strong id="stat-total">0</strong></span>
+  <span class="stat">待处理: <strong id="stat-queued">0</strong></span>
+  <span class="stat">进行中: <strong id="stat-running">0</strong></span>
+  <span class="stat">已完成: <strong id="stat-completed">0</strong></span>
+  <span class="stat">失败: <strong id="stat-failed">0</strong></span>
+  <span class="stat">智能体: <strong id="stat-agents">0</strong></span>
+  <span class="stat">在线: <strong id="stat-online">0</strong></span>
+</div>
+<nav id="nav">
+  <a class="active" data-page="dashboard">仪表盘</a>
+  <a data-page="tasks">任务列表</a>
+  <a data-page="agents">智能体</a>
+  <a data-page="submit">提交任务</a>
+  <a data-page="logs">日志</a>
+  <a data-page="config">配置</a>
+</nav>
+<main id="main">
+
+<!-- 页面：仪表盘 -->
+<div id="page-dashboard" class="page active">
+  <div class="card">
+    <h2>系统概览</h2>
+    <div class="flex" style="gap:2rem;flex-wrap:wrap">
+      <div style="text-align:center;padding:1rem 2rem;background:#f8f9fa;border-radius:10px;flex:1;min-width:150px">
+        <div style="font-size:2rem;font-weight:700;color:#667eea" id="d-total">0</div>
+        <div style="font-size:0.85rem;color:#888;margin-top:0.3rem">任务总数</div>
+      </div>
+      <div style="text-align:center;padding:1rem 2rem;background:#f8f9fa;border-radius:10px;flex:1;min-width:150px">
+        <div style="font-size:2rem;font-weight:700;color:#856404" id="d-queued">0</div>
+        <div style="font-size:0.85rem;color:#888;margin-top:0.3rem">待处理</div>
+      </div>
+      <div style="text-align:center;padding:1rem 2rem;background:#f8f9fa;border-radius:10px;flex:1;min-width:150px">
+        <div style="font-size:2rem;font-weight:700;color:#004085" id="d-running">0</div>
+        <div style="font-size:0.85rem;color:#888;margin-top:0.3rem">进行中</div>
+      </div>
+      <div style="text-align:center;padding:1rem 2rem;background:#f8f9fa;border-radius:10px;flex:1;min-width:150px">
+        <div style="font-size:2rem;font-weight:700;color:#27ae60" id="d-completed">0</div>
+        <div style="font-size:0.85rem;color:#888;margin-top:0.3rem">已完成</div>
+      </div>
+      <div style="text-align:center;padding:1rem 2rem;background:#f8f9fa;border-radius:10px;flex:1;min-width:150px">
+        <div style="font-size:2rem;font-weight:700;color:#e74c3c" id="d-online">0</div>
+        <div style="font-size:0.85rem;color:#888;margin-top:0.3rem">在线智能体</div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>最近任务</h2>
+    <div id="d-recent-tasks">加载中...</div>
+  </div>
+</div>
+
+<!-- 页面：任务列表 -->
+<div id="page-tasks" class="page">
+  <div class="card">
+    <div class="flex justify-between mb-1">
+      <h2>任务列表</h2>
+      <div>
+        <select id="task-status-filter" onchange="loadTasks()" style="width:auto">
+          <option value="">全部状态</option>
+          <option value="queued">待处理</option>
+          <option value="analyzing">分析中</option>
+          <option value="running">进行中</option>
+          <option value="completed">已完成</option>
+          <option value="failed">失败</option>
+          <option value="cancelled">已取消</option>
+        </select>
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>标题</th>
+          <th>状态</th>
+          <th>优先级</th>
+          <th>分配对象</th>
+          <th>所需能力</th>
+          <th>创建时间</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="tasks-table">
+        <tr><td colspan="8" class="text-center loading">加载中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 页面：智能体 -->
+<div id="page-agents" class="page">
+  <div class="card">
+    <div class="flex justify-between mb-1">
+      <h2>智能体列表</h2>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>名称</th>
+          <th>状态</th>
+          <th>能力</th>
+          <th>当前负载</th>
+          <th>最大负载</th>
+          <th>最后在线</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="agents-table">
+        <tr><td colspan="8" class="text-center loading">加载中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card" style="max-width:500px">
+    <h2>注册新智能体</h2>
+    <div class="form-group"><label>智能体ID</label><input id="reg-id" placeholder="例如: my-agent"/></div>
+    <div class="form-group"><label>名称</label><input id="reg-name" placeholder="我的智能体"/></div>
+    <div class="form-group"><label>能力 (逗号分隔)</label><input id="reg-caps" placeholder="chat, code, analyze"/></div>
+    <div class="form-group"><label>最大负载</label><input id="reg-load" type="number" value="10" min="1"/></div>
+    <button class="btn btn-primary" onclick="registerAgent()">注册</button>
+    <div id="reg-result" class="mt-1"></div>
+  </div>
+</div>
+
+<!-- 页面：提交任务 -->
+<div id="page-submit" class="page">
+  <div class="card" style="max-width:600px">
+    <h2>提交新任务</h2>
+    <div class="form-group"><label>任务标题 *</label><input id="task-title" placeholder="输入任务标题"/></div>
+    <div class="form-group"><label>任务描述</label><textarea id="task-desc" rows="4" placeholder="详细描述任务内容…"></textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>优先级</label><select id="task-priority"><option value="low">低</option><option value="medium" selected>中</option><option value="high">高</option><option value="critical">紧急</option></select></div>
+      <div class="form-group"><label>所需能力 (逗号分隔，留空自动分析)</label><input id="task-skills" placeholder="chat, code, analyze"/></div>
+    </div>
+    <button class="btn btn-primary" onclick="submitTask()">提交任务</button>
+    <button class="btn btn-success" onclick="submitAndRefresh()" style="margin-left:0.5rem">提交并查看</button>
+    <div id="submit-result" class="mt-1"></div>
+  </div>
+</div>
+
+<!-- 页面：日志 -->
+<div id="page-logs" class="page">
+  <div class="card">
+    <div class="flex justify-between mb-1">
+      <h2>任务日志</h2>
+      <button class="btn btn-sm btn-primary" onclick="loadLogs()">刷新</button>
+    </div>
+    <div id="logs-content">加载中...</div>
+  </div>
+</div>
+
+<!-- 页面：配置 -->
+<div id="page-config" class="page">
+  <div class="card" style="max-width:600px">
+    <h2>服务配置</h2>
+    <div class="form-group"><label>监听主机</label><input id="cfg-host" value="0.0.0.0"/></div>
+    <div class="form-group"><label>监听端口</label><input id="cfg-port" type="number" value="8767"/></div>
+    <div class="form-group"><label>默认超时 (秒)</label><input id="cfg-timeout" type="number" value="300"/></div>
+    <div class="form-group"><label>最大重试次数</label><input id="cfg-retry" type="number" value="3"/></div>
+    <div class="form-group"><label>重试延迟 (秒)</label><input id="cfg-delay" type="number" value="60"/></div>
+    <div class="form-group"><label>智能体最大负载</label><input id="cfg-maxload" type="number" value="10"/></div>
+    <div><small style="color:#999">配置修改需要重启服务才能生效</small></div>
+  </div>
+  <div class="card">
+    <h2>当前配置</h2>
+    <div id="config-json">加载中...</div>
+  </div>
+</div>
+
+</main>
+<script>
+const API_BASE = '';
+
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  document.querySelectorAll('#nav a').forEach(a => {
+    a.classList.toggle('active', a.dataset.page === id);
+  });
+}
+
+// 导航点击
+document.querySelectorAll('#nav a').forEach(a => {
+  a.onclick = () => {
+    const page = a.dataset.page;
+    showPage(page);
+    switch (page) {
+      case 'dashboard': loadDashboard(); break;
+      case 'tasks': loadTasks(); break;
+      case 'agents': loadAgents(); break;
+      case 'logs': loadLogs(); break;
+      case 'config': loadConfig(); break;
+    }
+  };
+});
+
+// API 请求
+async function api(path, opts = {}) {
+  const h = opts.headers || {};
+  const r = await fetch(API_BASE + path, { ...opts, headers: h });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.detail || e.message || '请求失败 (' + r.status + ')');
+  }
+  return r.json();
+}
+
+// 加载仪表盘
+async function loadDashboard() {
+  try {
+    const r = await api('/api/stats');
+    if (!r || r.code !== 0) return;
+    const s = r.data;
+    document.getElementById('d-total').textContent = s.total_tasks || 0;
+    document.getElementById('d-queued').textContent = s.queued || 0;
+    document.getElementById('d-running').textContent = s.running || 0;
+    document.getElementById('d-completed').textContent = s.completed || 0;
+    document.getElementById('d-online').textContent = s.online_agents || 0;
+    // 状态栏
+    document.getElementById('stat-total').textContent = s.total_tasks || 0;
+    document.getElementById('stat-queued').textContent = s.queued || 0;
+    document.getElementById('stat-running').textContent = s.running || 0;
+    document.getElementById('stat-completed').textContent = s.completed || 0;
+    document.getElementById('stat-failed').textContent = s.failed || 0;
+    document.getElementById('stat-agents').textContent = s.total_agents || 0;
+    document.getElementById('stat-online').textContent = s.online_agents || 0;
+  } catch (e) { console.error('加载仪表盘失败:', e); }
+  try {
+    const r = await api('/api/tasks');
+    if (!r || r.code !== 0) return;
+    const t = document.getElementById('d-recent-tasks');
+    const tasks = (r.data || []).slice(0, 10);
+    if (tasks.length === 0) {
+      t.innerHTML = '<div style="color:#999;text-align:center;padding:1rem">暂无任务</div>';
+      return;
+    }
+    t.innerHTML = tasks.map(task => {
+      const statusTag = `<span class="tag ${task.status}">${task.status}</span>`;
+      const priorityTag = `<span class="tag ${task.priority}">${task.priority}</span>`;
+      return '<div style="padding:0.5rem 0;border-bottom:1px solid #f0f0f0;font-size:0.85rem">' +
+        '<span style="font-size:0.75rem;color:#999;margin-right:0.5rem">' + (task.id || '').substring(0, 8) + '</span>' +
+        '<strong>' + (task.title || '无标题') + '</strong> ' +
+        statusTag + ' ' + priorityTag +
+        '<span style="color:#999;float:right">' + (task.assigned_to || '未分配') + ' · ' + (task.created_at || '') + '</span>' +
+        '</div>';
+    }).join('');
+  } catch (e) { console.error(e); }
+}
+loadDashboard();
+
+// 加载任务列表
+async function loadTasks() {
+  try {
+    const filter = document.getElementById('task-status-filter').value;
+    const r = await api('/api/tasks' + (filter ? '?status=' + filter : ''));
+    if (!r || r.code !== 0) return;
+    const t = document.getElementById('tasks-table');
+    const tasks = r.data || [];
+    if (tasks.length === 0) {
+      t.innerHTML = '<tr><td colspan="8" class="text-center">暂无任务</td></tr>';
+      return;
+    }
+    t.innerHTML = tasks.map(task => {
+      const statusTag = `<span class="tag ${task.status}">${task.status}</span>`;
+      const priorityTag = `<span class="tag ${task.priority}">${task.priority}</span>`;
+      return '<tr>' +
+        '<td style="font-size:0.8rem">' + (task.id || '').substring(0, 8) + '</td>' +
+        '<td><strong>' + (task.title || '-') + '</strong></td>' +
+        '<td>' + statusTag + '</td>' +
+        '<td>' + priorityTag + '</td>' +
+        '<td>' + (task.assigned_to || '-') + '</td>' +
+        '<td style="font-size:0.8rem">' + (task.required_skills || '-') + '</td>' +
+        '<td style="font-size:0.8rem;color:#999">' + (task.created_at || '-') + '</td>' +
+        '<td>' +
+          (task.status === 'running' || task.status === 'queued'
+            ? '<button class="btn btn-sm btn-danger" onclick="cancelTask(\'' + task.id + '\')">取消</button>'
+            : '<button class="btn btn-sm btn-primary" onclick="viewTask(\'' + task.id + '\')">详情</button>') +
+        '</td>' +
+        '</tr>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('tasks-table').innerHTML = '<tr><td colspan="8" class="text-center error">加载失败: ' + e.message + '</td></tr>';
+  }
+}
+
+async function cancelTask(id) {
+  if (!confirm('确定取消任务 ' + id + '？')) return;
+  try {
+    await api('/api/tasks/' + id, { method: 'DELETE' });
+    loadTasks();
+    loadDashboard();
+  } catch (e) { alert('取消失败: ' + e.message); }
+}
+
+async function viewTask(id) {
+  try {
+    const r = await api('/api/tasks/' + id + '/progress');
+    if (!r || r.code !== 0) return;
+    alert(JSON.stringify(r.data, null, 2));
+  } catch (e) { alert('获取详情失败: ' + e.message); }
+}
+
+// 加载智能体列表
+async function loadAgents() {
+  try {
+    const r = await api('/api/agents');
+    if (!r || r.code !== 0) return;
+    const t = document.getElementById('agents-table');
+    const agents = r.data || [];
+    if (agents.length === 0) {
+      t.innerHTML = '<tr><td colspan="8" class="text-center">暂无智能体</td></tr>';
+      return;
+    }
+    t.innerHTML = agents.map(a => {
+      const statusTag = `<span class="tag ${a.status}">${a.status}</span>`;
+      const loadPct = a.max_load > 0 ? Math.round(a.current_load / a.max_load * 100) : 0;
+      const loadColor = loadPct > 80 ? '#e74c3c' : loadPct > 50 ? '#856404' : '#27ae60';
+      return '<tr>' +
+        '<td style="font-size:0.8rem">' + a.id + '</td>' +
+        '<td><strong>' + a.name + '</strong></td>' +
+        '<td>' + statusTag + '</td>' +
+        '<td style="font-size:0.8rem">' + (a.capabilities || '-') + '</td>' +
+        '<td><span style="color:' + loadColor + ';font-weight:600">' + a.current_load + '/' + a.max_load + '</span></td>' +
+        '<td>' + a.max_load + '</td>' +
+        '<td style="font-size:0.8rem;color:#999">' + (a.last_seen || '-') + '</td>' +
+        '<td><button class="btn btn-sm btn-danger" onclick="deleteAgent(\'' + a.id + '\')">删除</button></td>' +
+        '</tr>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('agents-table').innerHTML = '<tr><td colspan="8" class="text-center error">加载失败: ' + e.message + '</td></tr>';
+  }
+}
+
+async function registerAgent() {
+  const id = document.getElementById('reg-id').value.trim();
+  const name = document.getElementById('reg-name').value.trim();
+  const caps = document.getElementById('reg-caps').value.split(',').map(s => s.trim()).filter(Boolean);
+  const load = parseInt(document.getElementById('reg-load').value) || 10;
+  if (!id || !name) {
+    document.getElementById('reg-result').innerHTML = '<div class="error">请填写ID和名称</div>';
+    return;
+  }
+  try {
+    const r = await api('/api/agents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, name, capabilities: caps.join(','), max_load: load })
+    });
+    document.getElementById('reg-result').innerHTML = '<div class="success">注册成功！</div>';
+    document.getElementById('reg-id').value = '';
+    document.getElementById('reg-name').value = '';
+    document.getElementById('reg-caps').value = '';
+    loadAgents();
+    loadDashboard();
+  } catch (e) {
+    document.getElementById('reg-result').innerHTML = '<div class="error">注册失败: ' + e.message + '</div>';
+  }
+}
+
+async function deleteAgent(id) {
+  if (!confirm('确定删除智能体 ' + id + '？')) return;
+  try {
+    await api('/api/agents/' + id, { method: 'DELETE' });
+    loadAgents();
+    loadDashboard();
+  } catch (e) { alert('删除失败: ' + e.message); }
+}
+
+// 提交任务
+async function submitTask() {
+  const title = document.getElementById('task-title').value.trim();
+  const desc = document.getElementById('task-desc').value.trim();
+  const priority = document.getElementById('task-priority').value;
+  const skills = document.getElementById('task-skills').value.trim();
+  if (!title) {
+    document.getElementById('submit-result').innerHTML = '<div class="error">请输入任务标题</div>';
+    return;
+  }
+  try {
+    const r = await api('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, description: desc, priority, required_skills: skills })
+    });
+    document.getElementById('submit-result').innerHTML = '<div class="success">任务提交成功！ID: ' + (r.data?.id || '') + '</div>';
+    document.getElementById('task-title').value = '';
+    document.getElementById('task-desc').value = '';
+    document.getElementById('task-skills').value = '';
+    loadDashboard();
+    return r;
+  } catch (e) {
+    document.getElementById('submit-result').innerHTML = '<div class="error">提交失败: ' + e.message + '</div>';
+  }
+}
+
+async function submitAndRefresh() {
+  const r = await submitTask();
+  if (r) {
+    showPage('tasks');
+    loadTasks();
+  }
+}
+
+// 加载日志
+async function loadLogs() {
+  try {
+    const r = await api('/api/logs');
+    if (!r || r.code !== 0) return;
+    const logs = r.data || [];
+    const c = document.getElementById('logs-content');
+    if (logs.length === 0) {
+      c.innerHTML = '<div style="color:#999;text-align:center;padding:1rem">暂无日志</div>';
+      return;
+    }
+    c.innerHTML = logs.map(l =>
+      '<div style="padding:0.4rem 0;border-bottom:1px solid #f0f0f0;font-size:0.82rem">' +
+      '<span style="color:#999;margin-right:1rem">' + (l.timestamp || '') + '</span>' +
+      '<span class="tag" style="background:#e8e8e8;color:#555">' + (l.action || '') + '</span>' +
+      '<span style="margin-left:1rem">' + (l.details || '') + '</span>' +
+      '<span style="color:#aaa;margin-left:0.5rem;font-size:0.75rem">[' + (l.task_id || '') + (l.agent_id ? '/' + l.agent_id : '') + ']</span>' +
+      '</div>'
+    ).join('');
+  } catch (e) {
+    document.getElementById('logs-content').innerHTML = '<div class="error">加载失败: ' + e.message + '</div>';
+  }
+}
+
+// 加载配置
+async function loadConfig() {
+  try {
+    const fields = ['host', 'port', 'timeout', 'retry', 'delay', 'maxload'];
+    fields.forEach(f => {
+      const el = document.getElementById('cfg-' + f);
+      if (el) el.value = el.dataset.default || el.value;
+    });
+    document.getElementById('config-json').innerHTML = '<pre>加载中...</pre>';
+    // 读取服务状态
+    const r = await api('/api/status');
+    if (r) {
+      document.getElementById('config-json').innerHTML = '<pre>' + JSON.stringify(r, null, 2) + '</pre>';
+    }
+  } catch (e) {
+    document.getElementById('config-json').innerHTML = '<div class="error">加载失败</div>';
+  }
+}
+
+// 自动刷新：每隔10秒更新仪表盘
+setInterval(() => {
+  const activePage = document.querySelector('.page.active');
+  if (activePage && activePage.id === 'page-dashboard') {
+    loadDashboard();
+  }
+}, 10000);
+</script>
+</body>
+</html>
