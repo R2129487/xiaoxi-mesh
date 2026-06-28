@@ -2,13 +2,10 @@
 """小希-Mesh 智能体接入脚本
 
 每台机器运行此脚本即可自动连接到消息中转服务器。
-支持同步跨智能体调用、能力处理器注册。
-
 用法:
     python3 agent_runner.py --agent xiaoqing
     python3 agent_runner.py --agent xiaobai
     python3 agent_runner.py --agent xiaolan
-    python3 agent_runner.py --agent xiaoqing --test-call  # 测试跨智能体调用
 """
 import argparse
 import asyncio
@@ -17,11 +14,15 @@ import logging
 import signal
 import sys
 import os
+import uuid
 
 # 把当前目录加到路径，以便导入 client 模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import httpx
 from client import MeshClient
+from executors import get_executors
+from decision_engine import DecisionEngine, DecisionType
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,12 +31,19 @@ logging.basicConfig(
 )
 log = logging.getLogger("agent")
 
+# ── 服务器地址配置（从环境变量读取，避免硬编码IP）──
+
+SERVER_HOST = os.environ.get("MESH_SERVER_HOST", "localhost")
+SERVER_PORT = os.environ.get("MESH_SERVER_PORT", "8765")
+SERVER_HTTP = os.environ.get("MESH_SERVER_HTTP", f"http://{SERVER_HOST}:{SERVER_PORT}")
+SERVER_WS = os.environ.get("MESH_SERVER_WS", f"ws://{SERVER_HOST}:{SERVER_PORT}")
+
 # ── 各智能体配置 ──
 
 AGENT_CONFIGS = {
     "xiaoqing": {
         "name": "小青",
-        "server": "ws://101.37.231.143:8765",
+        "server": SERVER_WS,
         "capabilities": [
             "code_generation", "file_transfer", "web_search",
             "translation", "desktop_automation", "wechat_operations"
@@ -45,29 +53,30 @@ AGENT_CONFIGS = {
     },
     "xiaobai": {
         "name": "小白",
-        "server": "ws://101.37.231.143:8765",
+        "server": SERVER_WS,
         "capabilities": [
             "file_transfer", "system_monitor", "download_management",
-            "ssh_operations", "web_search"
+            "ssh_operations", "web_search", "github_push"
         ],
-        "specialties": ["文件下载", "系统监控", "服务器运维", "下载站管理"],
-        "description": "新云服务器AI助手，擅长文件处理、下载站管理、系统监控",
+        "specialties": ["文件下载", "系统监控", "服务器运维", "下载站管理", "GitHub推送"],
+        "description": "新云服务器AI助手，擅长文件处理、下载站管理、系统监控、GitHub操作",
     },
     "xiaolan": {
         "name": "小蓝",
-        "server": "ws://101.37.231.143:8765",
+        "server": SERVER_WS,
         "capabilities": [
             "system_monitor", "web_search", "code_generation",
-            "data_analysis", "api_integration", "task_scheduling"
+            "data_analysis", "api_integration", "task_scheduling",
+            "ssh_operations", "hermes_call"
         ],
-        "specialties": ["系统管理", "数据分析", "API集成", "任务调度"],
-        "description": "阿里云服务器管理员，7x24在线，负责协调调度",
+        "specialties": ["系统管理", "数据分析", "API集成", "任务调度", "SSH运维"],
+        "description": "阿里云服务器管理员，7x24在线，负责协调调度、SSH运维",
     },
 }
 
 
 class AgentRunner:
-    """智能体运行器 - 自动连接、注册能力、处理消息、支持同步调用"""
+    """智能体运行器 - 自动连接、注册能力、处理消息"""
 
     def __init__(self, agent_id: str, token: str = None):
         if agent_id not in AGENT_CONFIGS:
@@ -84,27 +93,24 @@ class AgentRunner:
         self.description = cfg["description"]
         self._running = False
         self.client = None
+        
+        # 加载执行器
+        self.executors = get_executors(agent_id)
+        log.info(f"   加载了 {len(self.executors)} 个执行器")
 
-    def register_handler(self, capability: str, handler, public: bool = False):
-        """注册能力处理器
-
-        当其他智能体调用本智能体的某个能力时，自动执行对应的处理器。
-
-        Args:
-            capability: 能力名称
-            handler: 异步处理函数，签名: async def handler(params: dict) -> dict
-        """
-        if self.client:
-            self.client.register_handler(capability, handler, public=public)
-        else:
-            log.warning(f"客户端未初始化，无法注册处理器: {capability}")
+        # 初始化自主决策引擎
+        self.decision_engine = DecisionEngine(
+            agent_id=agent_id,
+            capabilities=self.capabilities,
+            specialties=self.specialties,
+            description=self.description,
+        )
 
     async def _ensure_token(self):
         """确保有可用的 token：先尝试注册，已存在则用 admin 获取新 token"""
         if self.token:
             return
 
-        import httpx
         async with httpx.AsyncClient(timeout=10) as http:
             # 1. 尝试注册（首次会成功并返回 token）
             try:
@@ -172,11 +178,9 @@ class AgentRunner:
 
         # 设置回调
         self.client.on_message(self._handle_message)
-        self.client.on_status(self._handle_status)
         self.client.on_agent_call(self._handle_agent_call)
-
-        # 注册默认的能力处理器
-        self._register_default_handlers()
+        self.client.on_status(self._handle_status)
+        self.client.on_task_request(self._handle_task_request)
 
         # 连接并注册
         self._running = True
@@ -195,45 +199,6 @@ class AgentRunner:
         finally:
             await self.stop()
 
-    def _register_default_handlers(self):
-        """注册默认能力处理器（子类可覆盖）"""
-        # 通用能力
-        self.register_handler("echo", self._handle_echo, public=True)
-        self.register_handler("system_monitor", self._handle_system_monitor, public=True)
-
-    async def _handle_echo(self, params: dict) -> dict:
-        """Echo 测试处理器"""
-        return {"message": f"Echo from {self.name}", "params_received": params}
-
-    async def _handle_system_monitor(self, params: dict) -> dict:
-        """系统监控处理器"""
-        import platform, os
-        action = params.get("action", "get_status")
-        if action == "get_status":
-            # 获取基本系统信息
-            try:
-                import psutil
-                cpu = f"{psutil.cpu_percent(interval=1)}%"
-                mem = psutil.virtual_memory()
-                mem_info = f"{mem.percent}% ({mem.used // (1024**3):.1f}GB/{mem.total // (1024**3):.1f}GB)"
-                disk = psutil.disk_usage("/")
-                disk_info = f"{disk.percent}% ({disk.used // (1024**3):.1f}GB/{disk.total // (1024**3):.1f}GB)"
-            except ImportError:
-                # 没有psutil，用基本方法
-                cpu = "N/A (psutil未安装)"
-                mem_info = "N/A"
-                disk_info = "N/A"
-            return {
-                "agent": self.name,
-                "hostname": platform.node(),
-                "platform": platform.platform(),
-                "cpu": cpu,
-                "memory": mem_info,
-                "disk": disk_info,
-                "uptime": os.popen("uptime -p 2>/dev/null || echo N/A").read().strip(),
-            }
-        return {"error": f"未知action: {action}"}
-
     async def stop(self):
         """停止智能体"""
         self._running = False
@@ -244,7 +209,7 @@ class AgentRunner:
     async def _handle_message(self, msg: dict):
         """处理收到的消息"""
         msg_type = msg.get("type", "unknown")
-        from_id = msg.get("from", "unknown")
+        from_id = msg.get("from_id", "unknown")
         content = msg.get("content", "")
 
         if msg_type == "ping":
@@ -262,141 +227,364 @@ class AgentRunner:
         else:
             log.info(f"   未处理的消息类型: {msg_type}")
 
+    async def _make_decision(self, task_description: str,
+                              from_agent: str = "") -> dict:
+        """统一决策入口：优先调用 MESH HTTP 决策 API，失败则回退到本地决策引擎
+
+        返回格式与 /api/decide 一致:
+          {"decision": "SELF"|"DELEGATE"|"UNKNOWN",
+           "target_agent": "...", "reason": "...",
+           "required_capability": "...", "confidence": 0.0,
+           "alternatives": []}
+        """
+        # ── 方式1: 调用 MESH HTTP 决策 API ──
+        try:
+            headers = {}
+            if self.token:
+                headers["Authorization"] = f"Bearer {self.token}"
+            async with httpx.AsyncClient(timeout=10) as http:
+                resp = await http.post(
+                    f"{self.server_http}/api/decide",
+                    json={
+                        "description": task_description,
+                        "from_agent": from_agent or self.agent_id,
+                    },
+                    headers=headers,
+                )
+                if resp.status_code == 200:
+                    body = resp.json()
+                    data = body.get("data", body)
+                    log.info(f"🧠 MESH决策API返回: {data.get('decision')} | "
+                             f"目标: {data.get('target_agent')} | "
+                             f"原因: {data.get('reason')}")
+                    return data
+        except Exception as e:
+            log.warning(f"MESH决策API调用失败，回退到本地引擎: {e}")
+
+        # ── 方式2: 本地 DecisionEngine 兜底 ──
+        local = await self.decision_engine.decide(task_description, self.client)
+        log.info(f"🧠 本地决策: {local.decision.value} | "
+                 f"能力: {local.capability_needed} | "
+                 f"原因: {local.reason} | 置信度: {local.confidence}")
+        return {
+            "decision": local.decision.value.upper(),
+            "target_agent": local.target_agent,
+            "reason": local.reason,
+            "required_capability": local.capability_needed,
+            "confidence": local.confidence,
+            "alternatives": local.alternatives,
+        }
+
+    # ── 任务处理（带决策流程）──
+
     async def _handle_task(self, msg: dict):
-        """处理任务委派"""
+        """处理任务委派 — 先走决策流程，再按结果执行或委派"""
         task_id = msg.get("metadata", {}).get("task_id", "unknown")
         content = msg.get("content", "")
+        from_id = msg.get("from_id", "")
         log.info(f"📋 收到任务 [{task_id}]: {content}")
 
-        # TODO: 这里接入实际的任务执行逻辑
-        # 目前先回复收到
-        await self.client.send(msg.get("from", ""), f"收到任务，正在处理...", "text")
+        # 1. 调用统一决策
+        decision = await self._make_decision(content, from_agent=self.agent_id)
+        action = decision.get("decision", "SELF").upper()
+        target = decision.get("target_agent", "")
+        reason = decision.get("reason", "")
+
+        # 2. 根据决策执行
+        if action == "DELEGATE" and target:
+            await self._delegate_task(task_id, content, from_id, decision)
+        elif action == "UNKNOWN":
+            # 无法判断：通知调用方，然后尝试本地执行
+            if self.client:
+                await self.client.send(
+                    from_id,
+                    f"任务 [{task_id}]：无法确定最佳执行者（需要 "
+                    f"{decision.get('required_capability', '')}），尝试本地处理。",
+                    "text",
+                )
+            await self._execute_and_reply(task_id, content, from_id)
+        else:
+            # SELF：自己执行
+            await self._execute_and_reply(task_id, content, from_id)
+
+    async def _execute_and_reply(self, task_id: str, content: str,
+                                  from_id: str):
+        """本地执行任务并把结果回复给请求者"""
+        if self.client:
+            await self.client.send(from_id, f"收到任务 [{task_id}]，开始执行...", "text")
+
+        result = await self._execute_locally(content)
+
+        if self.client:
+            if result:
+                await self.client.send(
+                    from_id, f"任务 [{task_id}] 执行完成\n{result}", "text"
+                )
+            else:
+                await self.client.send(from_id, f"任务 [{task_id}] 执行完成", "text")
 
     async def _handle_agent_call(self, msg: dict):
-        """处理跨智能体调用（兼容旧式和新式）"""
-        from_id = msg.get("from_id", msg.get("from", ""))
+        """处理跨智能体调用 — 先决策，再执行或转发"""
+        action = msg.get("content", "")
+        params = msg.get("metadata", {}).get("params", {})
+        from_id = msg.get("from_id", "")
         call_id = msg.get("call_id", "")
-        capability = msg.get("capability", "")
-        params = msg.get("params", {})
-        content = msg.get("content", "")
+        
+        log.info(f"📞 收到调用请求: {action}({json.dumps(params, ensure_ascii=False)[:100]})")
 
-        if capability:
-            # 新式调用：基于 capability + params
-            log.info(f"📞 收到调用请求: {from_id} -> {capability}({json.dumps(params, ensure_ascii=False)[:100]})")
+        # ── 决策：检查自己是否能处理 ──
+        if not self.decision_engine.can_handle(action):
+            log.info(f"🔀 自己没有 {action} 能力，走决策流程...")
+            decision = await self._make_decision(action, from_agent=self.agent_id)
+            target = decision.get("target_agent", "")
+            if decision.get("decision") == "DELEGATE" and target:
+                log.info(f"   转发调用到 {target}")
+                if self.client:
+                    await self.client.call_agent(
+                        target, action,
+                        call_id=call_id, params=params,
+                    )
+                    await self.client.send(
+                        from_id,
+                        f"我({self.name})没有 {action} 能力，已转发给 {target} 处理",
+                        "text",
+                    )
+                return
 
-            # 尝试查找已注册的处理器
-            if capability in self.client._capability_handlers:
-                try:
-                    handler = self.client._capability_handlers[capability]
-                    result = await handler(params)
-                    if call_id:
-                        await self.client.respond_to_call(call_id, data=result)
-                except Exception as e:
-                    log.error(f"能力 {capability} 执行异常: {e}")
-                    if call_id:
-                        await self.client.respond_to_call(call_id, error=str(e))
+        # ── 本地执行 ──
+        executor = self.executors.get(action)
+        if not executor:
+            # 尝试用 hermes_call 作为通用执行器
+            executor = self.executors.get("hermes_call")
+            if executor:
+                params = {"prompt": action, **params}
             else:
-                log.warning(f"未找到能力处理器: {capability}")
-                if call_id:
-                    await self.client.respond_to_call(call_id, error=f"能力 {capability} 不支持")
-        else:
-            # 旧式调用：基于 content 文本
-            action = content
-            params_legacy = msg.get("metadata", {}).get("params", {})
-            log.info(f"📞 收到旧式调用请求: {action}({json.dumps(params_legacy, ensure_ascii=False)[:100]})")
+                error_msg = f"未找到执行器: {action}"
+                log.warning(f"   {error_msg}")
+                if self.client:
+                    await self.client.send(from_id, f"调用失败: {error_msg}", "text")
+                return
 
-            # TODO: 这里接入实际的能力执行逻辑
-            await self.client.send(from_id, f"调用 {action} 完成", "text")
+        try:
+            result = await executor(params)
+            log.info(f"   执行结果: {json.dumps(result, ensure_ascii=False)[:200]}")
+            
+            if self.client:
+                result_text = json.dumps(result, ensure_ascii=False, indent=2)
+                await self.client.send(from_id, result_text, "text")
+        except Exception as e:
+            error_msg = f"执行异常: {str(e)}"
+            log.error(f"   {error_msg}")
+            if self.client:
+                await self.client.send(from_id, error_msg, "text")
+
+    async def _delegate_task(self, task_id: str, content: str,
+                              from_id: str, decision: dict):
+        """将任务委派给其他Agent（带确认机制 + 备选自动切换）
+
+        流程:
+          1. 发送 task_request 给首选拟Agent
+          2. 等待确认（10秒超时）
+          3. 被拒绝/超时 → 自动尝试 alternatives 列表中的下一个
+          4. 所有备选都失败 → 通知调用方
+        """
+        target = decision.get("target_agent", "")
+        cap_needed = decision.get("required_capability", "")
+        alternatives = decision.get("alternatives", [])
+
+        if not target:
+            log.error("无法委派：未指定目标Agent")
+            if self.client:
+                await self.client.send(
+                    from_id,
+                    f"任务 [{task_id}]：委派失败，未找到可用的目标Agent",
+                    "text",
+                )
+            return
+        if not self.client:
+            log.error("无法委派：client未连接")
+            return
+
+        # 通知调用方正在委派
+        await self.client.send(
+            from_id,
+            f"任务 [{task_id}]：我({self.name})没有 {cap_needed} 能力，"
+            f"正在转交给 {target} 处理...",
+            "text",
+        )
+
+        # 构建候选列表：首选拟 + 备选
+        candidates = [target] + [a for a in alternatives if a != target]
+        task_status = "failed"
+
+        for idx, candidate in enumerate(candidates):
+            label = "首选" if idx == 0 else f"备选#{idx}"
+            log.info(f"📤 任务 [{task_id}] 尝试 {label}: {candidate}")
+
+            # 更新任务状态为 requesting
+            if self.client:
+                await self.client.update_task_status(task_id, "requesting")
+
+            # 发送 task_request
+            await self.client.send_task_request(
+                target_id=candidate,
+                task_id=task_id,
+                description=content,
+                required_capability=cap_needed,
+                timeout=20.0,
+            )
+
+            # 等待确认
+            result = await self.client.wait_for_task_confirmation(
+                task_id, timeout=20.0
+            )
+            status = result.get("status", "timed_out")
+            reason = result.get("reason", "")
+
+            if status == "accepted":
+                log.info(f"✅ 任务 [{task_id}] 被 {candidate} 接受")
+                task_status = "accepted"
+                # 通知调用方已被接受
+                if self.client:
+                    await self.client.send(
+                        from_id,
+                        f"任务 [{task_id}] 已被 {candidate} 接受，正在执行...",
+                        "text",
+                    )
+                break
+            else:
+                log.info(f"❌ 任务 [{task_id}] 被 {candidate} {status}: {reason}")
+                if idx < len(candidates) - 1:
+                    next_target = candidates[idx + 1]
+                    log.info(f"🔄 尝试下一个备选: {next_target}")
+                    if self.client:
+                        await self.client.send(
+                            from_id,
+                            f"任务 [{task_id}]：{candidate} {status}({reason})，"
+                            f"正在尝试下一个备选 {next_target}...",
+                            "text",
+                        )
+
+        if task_status == "failed":
+            log.warning(f"⚠️ 任务 [{task_id}] 所有候选均失败")
+            if self.client:
+                await self.client.send(
+                    from_id,
+                    f"任务 [{task_id}] 委派失败：所有候选Agent"
+                    f"({', '.join(candidates)}) 均拒绝或超时",
+                    "text",
+                )
+
+    async def _handle_task_request(self, data: dict):
+        """处理收到的任务请求 — 先确认(ACCEPT/REJECT)，再执行
+
+        接收方逻辑:
+          1. 收到 task_request
+          2. 检查自己是否能处理（通过决策引擎）
+          3. 能处理 → 回复 ACCEPT，开始执行
+          4. 不能处理 → 回复 REJECT
+        """
+        task_id = data.get("task_id", "")
+        description = data.get("description", "")
+        from_agent = data.get("from_agent", "")
+        required_capability = data.get("required_capability", "")
+
+        log.info(f"📋 收到任务请求 [{task_id}] 来自 {from_agent}: {description[:80]}")
+
+        try:
+            # 决策：自己能否处理
+            decision = await self._make_decision(description, from_agent=self.agent_id)
+            action = decision.get("decision", "SELF").upper()
+        except Exception as e:
+            log.error(f"❌ 任务请求 [{task_id}] 决策异常: {e}，默认接受")
+            action = "SELF"
+
+        if action == "DELEGATE":
+            # 自己也处理不了，拒绝
+            reason = f"我({self.name})没有处理此任务的能力({required_capability})"
+            log.info(f"❌ 拒绝任务 [{task_id}]: {reason}")
+            if self.client:
+                await self.client.send_task_response(
+                    target_id=from_agent,
+                    task_id=task_id,
+                    status="rejected",
+                    reason=reason,
+                )
+            return
+
+        # 可以处理（SELF 或 UNKNOWN 但本地尝试）
+        log.info(f"✅ 接受任务 [{task_id}]")
+        if self.client:
+            await self.client.send_task_response(
+                target_id=from_agent,
+                task_id=task_id,
+                status="accepted",
+                reason=f"我({self.name})可以处理",
+            )
+            # 更新任务状态为 executing
+            await self.client.update_task_status(task_id, "executing")
+
+        # 本地执行
+        result = await self._execute_locally(description)
+
+        if self.client:
+            if result:
+                await self.client.send(
+                    from_agent,
+                    f"任务 [{task_id}] 执行完成\n{result}",
+                    "text",
+                )
+            else:
+                await self.client.send(
+                    from_agent,
+                    f"任务 [{task_id}] 执行完成",
+                    "text",
+                )
+            # 更新任务状态为 completed
+            await self.client.complete_task(task_id, result or "完成")
+
+    async def _execute_locally(self, content: str) -> str:
+        """尝试本地执行任务，返回结果文本或空字符串"""
+        log.info(f"[execute] start: {content[:50]}")
+        executor = self.executors.get("hermes_call")
+        if not executor:
+            log.warning("[execute] hermes_call executor not found")
+            return ""
+        try:
+            result = await executor({"prompt": content, "timeout": 120})
+            log.info(f"[execute] done: success={result.get('success')}")
+            if result.get("success"):
+                return result.get("result", "执行完成")
+            else:
+                return f"执行失败: {result.get('error', '未知错误')}"
+        except Exception as e:
+            log.error(f"本地执行异常: {e}")
+            return ""
 
     async def _handle_text(self, msg: dict):
-        """处理普通文本消息"""
-        from_id = msg.get("from", "")
+        """处理普通文本消息 - 直接本地处理，不走决策流程"""
+        from_id = msg.get("from_id", "")
         content = msg.get("content", "")
-        log.info(f"💬 [{from_id}]: {content}")
+        log.info(f"[{from_id}]: {content}")
+
+        if not content or content.strip() == "":
+            return
+
+        # 跳过系统确认消息，防止回声循环
+        _sys_prefixes = ("✅ 任务", "✅ 任务已创建", "❌ 任务", "📋 收到任务", "🔄 ")
+        if any(content.startswith(p) for p in _sys_prefixes):
+            log.info(f"   跳过系统消息")
+            return
+
+        result = await self._execute_locally(content)
+        if self.client and result:
+            await self.client.send(from_id, result, "text")
 
     def _handle_status(self, data: dict):
         """处理状态变更"""
         agent_id = data.get("agent_id", "")
         status = data.get("status", "")
         log.info(f"🔄 状态变更: {agent_id} -> {status}")
-
-
-async def _test_cross_agent_call(agent_id: str, token: str = None):
-    """测试跨智能体同步调用"""
-    log.info(f"🧪 开始测试跨智能体同步调用...")
-
-    runner = AgentRunner(agent_id, token)
-    await runner._ensure_token()
-    if not runner.token:
-        log.error("❌ 无法获取 token，测试终止")
-        return
-
-    client = MeshClient(
-        server_url=runner.server_ws,
-        agent_id=runner.agent_id,
-        token=runner.token,
-    )
-    client.set_capabilities(runner.capabilities, runner.specialties)
-
-    # 在后台运行连接
-    connect_task = asyncio.create_task(client.connect())
-    await asyncio.sleep(3)  # 等待连接建立
-
-    if not client.ws:
-        log.error("❌ 无法连接到消息服务器")
-        connect_task.cancel()
-        return
-
-    try:
-        # 测试 1: 调用 xiaolan 的 system_monitor 能力
-        log.info("─── 测试 1: 调用小蓝的 system_monitor 能力 ───")
-        try:
-            result = await client.call_agent(
-                target_id="xiaolan",
-                capability="system_monitor",
-                params={"action": "get_status"},
-                timeout=15
-            )
-            log.info(f"✅ 调用成功: {result}")
-        except TimeoutError as e:
-            log.warning(f"⏰ 超时（小蓝可能未在线）: {e}")
-        except RuntimeError as e:
-            log.warning(f"⚠️ 调用失败: {e}")
-
-        # 测试 2: 调用 xiaobai 的 system_monitor 能力
-        log.info("─── 测试 2: 调用小白的 system_monitor 能力 ───")
-        try:
-            result = await client.call_agent(
-                target_id="xiaobai",
-                capability="system_monitor",
-                params={"action": "get_load"},
-                timeout=15
-            )
-            log.info(f"✅ 调用成功: {result}")
-        except TimeoutError as e:
-            log.warning(f"⏰ 超时（小白可能未在线）: {e}")
-        except RuntimeError as e:
-            log.warning(f"⚠️ 调用失败: {e}")
-
-        # 测试 3: 调用不存在的能力
-        log.info("─── 测试 3: 调用不存在的能力 ───")
-        try:
-            result = await client.call_agent(
-                target_id="xiaolan",
-                capability="nonexistent_ability",
-                params={},
-                timeout=10
-            )
-            log.info(f"✅ 调用成功: {result}")
-        except TimeoutError as e:
-            log.warning(f"⏰ 超时: {e}")
-        except RuntimeError as e:
-            log.warning(f"⚠️ 调用失败（预期）: {e}")
-
-    finally:
-        await client.disconnect()
-        connect_task.cancel()
-        log.info("🧪 测试完成")
 
 
 def main():
@@ -408,8 +596,6 @@ def main():
                         help="认证Token（不提供则尝试注册获取）")
     parser.add_argument("--list", "-l", action="store_true",
                         help="列出所有可用智能体")
-    parser.add_argument("--test-call", action="store_true",
-                        help="测试跨智能体同步调用")
     args = parser.parse_args()
 
     if args.list:
@@ -417,17 +603,6 @@ def main():
         for aid, cfg in AGENT_CONFIGS.items():
             print(f"  {aid}: {cfg['name']} - {cfg['description']}")
             print(f"       能力: {', '.join(cfg['capabilities'])}")
-        return
-
-    if args.test_call:
-        # 测试模式
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(_test_cross_agent_call(args.agent, args.token))
-        except KeyboardInterrupt:
-            pass
-        finally:
-            loop.close()
         return
 
     runner = AgentRunner(args.agent, args.token)

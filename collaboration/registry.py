@@ -1,12 +1,17 @@
 """智能体注册表
 
 内存缓存 + DB 持久化的智能体注册表，支持能力声明、状态更新、在线状态管理。
+local agent 通过定期健康检查（探测 Hermes gateway 端口）判断在线状态，
+remote agent 通过 WebSocket 连接判断在线状态。
 """
 from __future__ import annotations
+import asyncio
 import logging
 import time
 from datetime import datetime, timezone
 from typing import Optional
+
+import httpx
 
 from models import Agent
 
@@ -18,12 +23,14 @@ class AgentRegistry:
 
     维护内存缓存以提高查询性能，同时通过 Storage 层实现 DB 持久化。
     """
-
     def __init__(self, storage):
         self._storage = storage
         self._cache: dict[str, Agent] = {}  # agent_id -> Agent
         self._online_since: dict[str, float] = {}  # agent_id -> 连接时间戳
         self._loaded = False
+        # local agent 健康检查：agent_id -> {"url": ..., "interval": ...}
+        self._local_agents: dict[str, dict] = {}
+        self._health_task: Optional[asyncio.Task] = None
 
     async def load_from_db(self):
         """从数据库加载所有智能体到内存缓存"""
@@ -112,3 +119,72 @@ class AgentRegistry:
     @property
     def total_count(self) -> int:
         return len(self._cache)
+
+    # ── Local Agent 健康检查 ──
+
+    def register_local_agent(self, agent_id: str, health_url: str,
+                              interval: int = 15):
+        """注册本地智能体的健康检查配置
+
+        health_url: 探测地址，如 http://localhost:8080/v1/models
+        interval: 检查间隔秒数
+        """
+        self._local_agents[agent_id] = {
+            "url": health_url,
+            "interval": interval,
+        }
+        log.info(f"注册 local agent 健康检查: {agent_id} -> {health_url}")
+
+    async def start_health_check(self):
+        """启动 local agent 健康检查后台任务"""
+        if self._local_agents and self._health_task is None:
+            self._health_task = asyncio.create_task(self._health_check_loop())
+            log.info(f"启动 local agent 健康检查，共 {len(self._local_agents)} 个")
+
+    async def stop_health_check(self):
+        """停止健康检查"""
+        if self._health_task:
+            self._health_task.cancel()
+            try:
+                await self._health_task
+            except asyncio.CancelledError:
+                pass
+            self._health_task = None
+
+    async def _health_check_loop(self):
+        """后台循环：定期检查所有 local agent 的健康状态"""
+        while True:
+            try:
+                for agent_id, cfg in self._local_agents.items():
+                    await self._check_local_agent(agent_id, cfg["url"])
+                # 取最短间隔
+                min_interval = min(
+                    (cfg["interval"] for cfg in self._local_agents.values()),
+                    default=15
+                )
+                await asyncio.sleep(min_interval)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"健康检查异常: {e}")
+                await asyncio.sleep(15)
+
+    async def _check_local_agent(self, agent_id: str, health_url: str):
+        """探测单个 local agent 是否在线"""
+        was_online = agent_id in self._online_since
+        is_online = False
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(health_url)
+                is_online = resp.status_code < 500
+        except Exception:
+            is_online = False
+
+        if is_online and not was_online:
+            self.set_online(agent_id)
+            await self._storage.set_online(agent_id, True)
+            log.info(f"[local] {agent_id} 上线")
+        elif not is_online and was_online:
+            self.set_offline(agent_id)
+            await self._storage.set_online(agent_id, False)
+            log.info(f"[local] {agent_id} 离线")

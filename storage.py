@@ -26,6 +26,7 @@ class Storage:
                     agent_id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
                     role TEXT NOT NULL DEFAULT 'agent',
+                    agent_type TEXT NOT NULL DEFAULT 'remote',
                     token_hash TEXT NOT NULL DEFAULT '',
                     public_key TEXT,
                     online INTEGER NOT NULL DEFAULT 0,
@@ -97,6 +98,12 @@ class Storage:
                 );
             """)
             await db.commit()
+            # 迁移：给已有 DB 加 agent_type 列
+            try:
+                await db.execute("ALTER TABLE agents ADD COLUMN agent_type TEXT NOT NULL DEFAULT 'remote'")
+                await db.commit()
+            except Exception:
+                pass  # 列已存在，忽略
 
     # ── 智能体操作 ──
 
@@ -109,11 +116,12 @@ class Storage:
             if exists:
                 return False
             await db.execute(
-                """INSERT INTO agents (agent_id, name, role, token_hash,
+                """INSERT INTO agents (agent_id, name, role, agent_type, token_hash,
                    public_key, registered_at, metadata, capabilities,
                    specialties, platform, description)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (agent.agent_id, agent.name, agent.role, agent.token_hash,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (agent.agent_id, agent.name, agent.role, agent.agent_type,
+                 agent.token_hash,
                  agent.public_key, agent.registered_at.isoformat(),
                  json.dumps(agent.metadata), json.dumps(agent.capabilities),
                  json.dumps(agent.specialties), json.dumps(agent.platform),
@@ -144,7 +152,7 @@ class Storage:
 
     async def update_agent(self, agent_id: str, **kwargs) -> bool:
         """更新智能体字段"""
-        allowed = {"name", "role", "public_key", "metadata", "capabilities",
+        allowed = {"name", "role", "agent_type", "public_key", "metadata", "capabilities",
                     "specialties", "platform", "description"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
@@ -500,6 +508,7 @@ class Storage:
             agent_id=row["agent_id"],
             name=row["name"],
             role=row["role"],
+            agent_type=row["agent_type"] if "agent_type" in row.keys() else "remote",
             token_hash=row["token_hash"],
             public_key=row["public_key"],
             online=bool(row["online"]),

@@ -69,10 +69,55 @@ _agent_public_caps: dict[str, set[str]] = {}
 async def lifespan(app: FastAPI):
     await store.init()
     await registry.load_from_db()
+
+    # 自动注册本机 local agent（小青）
+    xiaoqing_id = "xiaoqing"
+    if not registry.has_agent(xiaoqing_id):
+        local_agent = Agent(
+            agent_id=xiaoqing_id,
+            name="小青",
+            role="agent",
+            agent_type="local",
+            capabilities=["file", "browser", "wechat", "desktop", "code"],
+            description="本机 AI 助手，运行在 Y7000 上",
+        )
+        await registry.register(local_agent)
+        log.info(f"自动注册本机 agent: {xiaoqing_id}")
+    else:
+        # 确保已存在的 agent 也标记为 local
+        agent = registry.get(xiaoqing_id)
+        if agent and agent.agent_type != "local":
+            await store.update_agent(xiaoqing_id, agent_type="local")
+            agent.agent_type = "local"
+            log.info(f"更新 {xiaoqing_id} 为 local agent")
+
+    # 自动注册 task-dispatcher（调度器）
+    dispatcher_id = "task-dispatcher"
+    if not registry.has_agent(dispatcher_id):
+        dispatcher_agent = Agent(
+            agent_id=dispatcher_id,
+            name="调度员",
+            role="dispatcher",
+            agent_type="local",
+            capabilities=["task_dispatch", "task_management", "chat"],
+            description="任务调度中心，运行在本机",
+        )
+        await registry.register(dispatcher_agent)
+        log.info(f"自动注册 agent: {dispatcher_id}")
+
+    # 注册 local agent 健康检查（探测 Hermes gateway）
+    registry.register_local_agent(
+        xiaoqing_id,
+        health_url="http://localhost:8644/v1/models",
+        interval=15,
+    )
+    await registry.start_health_check()
+
     # 设置委派器的广播函数
     delegator.set_broadcast(_send_to_agent)
     log.info("小希-Mesh v2 服务启动完成")
     yield
+    await registry.stop_health_check()
     log.info("小希-Mesh v2 服务关闭")
 
 
@@ -206,6 +251,7 @@ async def register_agent(reg: AgentRegister, authorization: str = Header(None)):
         agent_id=reg.agent_id,
         name=reg.name,
         role=reg.role,
+        agent_type=reg.agent_type,
         public_key=reg.public_key,
         metadata=reg.metadata,
         capabilities=reg.capabilities,
@@ -242,6 +288,7 @@ async def list_agents():
             "agent_id": a.agent_id,
             "name": a.name,
             "role": a.role,
+            "agent_type": a.agent_type,
             "online": a.online,
             "last_seen": a.last_seen.isoformat() if a.last_seen else None,
             "capabilities": a.capabilities,

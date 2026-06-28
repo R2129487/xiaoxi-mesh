@@ -24,6 +24,7 @@ class AgentRegister(BaseModel):
     agent_id: str
     name: str
     role: str = "agent"  # admin | agent | external | readonly
+    agent_type: str = "remote"  # local=本机agent | remote=远程agent
     public_key: Optional[str] = None
     metadata: dict = Field(default_factory=dict)
     capabilities: List[str] = Field(default_factory=list)
@@ -37,6 +38,7 @@ class Agent(BaseModel):
     agent_id: str
     name: str
     role: str = "agent"
+    agent_type: str = "remote"  # local=本机agent | remote=远程agent
     token_hash: str = ""
     public_key: Optional[str] = None
     online: bool = False

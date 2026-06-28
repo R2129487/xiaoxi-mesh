@@ -29,11 +29,12 @@ if not cfg['admin']['password_hash']:
     print(f'管理员密码已设置: admin / {pw}')
 "
     touch .initialized
-else:
+else
     echo "[3/4] 已初始化，跳过"
+fi
 
-# 4. 启动服务
-echo "[4/4] 启动服务..."
+# 4. 初始化数据库
+echo "[4/4] 初始化数据库..."
 python3 -c "
 import asyncio
 from storage import Storage
