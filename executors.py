@@ -357,6 +357,7 @@ EXECUTOR_MAP = {
     "xiaoqing": XIAOQING_EXECUTORS,
     "xiaobai": XIAOBAI_EXECUTORS,
     "xiaolan": XIAOLAN_EXECUTORS,
+    "xiaohei": COMMON_EXECUTORS,  # 小黑用通用执行器
 }
 
 

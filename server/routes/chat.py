@@ -27,6 +27,7 @@ AGENT_ID_MAP = {
     "xiao-lan": "xiaolan",
     "xiao-bai": "xiaobai",
     "xiao-qing": "xiaoqing",
+    "xiao-hei": "xiaohei",
 }
 
 # ==================== MiMo LLM 客户端 ====================

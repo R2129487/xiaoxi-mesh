@@ -120,5 +120,6 @@ CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id
 
 
 def now_str() -> str:
-    """返回当前UTC时间字符串"""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    """返回当前北京时间字符串（ISO 8601格式，UTC+8）"""
+    from datetime import timedelta
+    return (datetime.now(timezone.utc) + timedelta(hours=8)).strftime("%Y-%m-%dT%H:%M:%S")
